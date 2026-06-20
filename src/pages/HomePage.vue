@@ -10,7 +10,7 @@ import { useDemoMode } from '../composables/useDemoMode';
 import { onCharactersImported } from '../composables/useCharacters';
 import type { Character } from '../types';
 
-const selectedCharacter = ref<Character | null>(null);
+const selectedId = ref<string | null>(null);
 const showModal = ref(false);
 const editingCharacter = ref<Character | null>(null);
 
@@ -18,8 +18,13 @@ const { demoCharacters } = useDemoMode();
 
 const visibleIds = computed(() => demoCharacters.value.map(c => c.id));
 
+const selectedCharacter = computed<Character | null>(() => {
+  if (!selectedId.value) return null;
+  return demoCharacters.value.find(c => c.id === selectedId.value) ?? null;
+});
+
 function handleSelect(char: Character | null) {
-  selectedCharacter.value = char;
+  selectedId.value = char?.id ?? null;
 }
 
 function handleEdit(char: Character) {
@@ -38,13 +43,15 @@ function closeModal() {
 }
 
 function handleSaved(char: Character) {
-  selectedCharacter.value = char;
+  selectedId.value = char.id;
 }
 
 function handleDataImported() {
-  if (selectedCharacter.value) {
-    const found = demoCharacters.value.find(c => c.id === selectedCharacter.value?.id);
-    selectedCharacter.value = found ?? null;
+  if (selectedId.value) {
+    const found = demoCharacters.value.find(c => c.id === selectedId.value);
+    if (!found) {
+      selectedId.value = null;
+    }
   }
 }
 
@@ -65,7 +72,7 @@ onMounted(() => {
       <div class="grid grid-cols-1 xl:grid-cols-5 gap-4" style="height: calc(100vh - 200px); min-height: 520px;">
         <div class="xl:col-span-3">
           <CharacterTable
-            :selected-id="selectedCharacter?.id ?? null"
+            :selected-id="selectedId"
             @select="handleSelect"
             @edit="handleEdit"
           />
@@ -73,7 +80,7 @@ onMounted(() => {
         <div class="xl:col-span-2">
           <DetailPanel
             :character="selectedCharacter"
-            @close="selectedCharacter = null"
+            @close="selectedId = null"
             @edit="handleEdit"
           />
         </div>

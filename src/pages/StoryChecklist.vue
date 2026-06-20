@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import {
   ChevronLeft,
   ChevronRight,
@@ -21,15 +21,21 @@ import {
 } from 'lucide-vue-next';
 import TopBar from '../components/TopBar.vue';
 import ToastContainer from '../components/ToastContainer.vue';
+import CharacterModal from '../components/CharacterModal.vue';
 import { useCharacters } from '../composables/useCharacters';
 import { useToast } from '../composables/useToast';
 import { useAutoCheck } from '../composables/useAutoCheck';
+import { useBatchOperations } from '../composables/useBatchOperations';
 import type { Character, CharacterStatus, RiskLevel } from '../types';
 import { STATUS_LABELS, RISK_LABELS } from '../types';
 
 const { characters, allStories, updateCharacter, getCharacterById } = useCharacters();
 const { success, warning } = useToast();
 const { hasMissingAccessories } = useAutoCheck();
+const { clearSelection } = useBatchOperations();
+
+const showModal = ref(false);
+const editingCharacter = ref<Character | null>(null);
 
 const selectedStory = ref<string>('');
 const filterMode = ref<'all' | 'incomplete' | 'risk'>('all');
@@ -37,6 +43,10 @@ const editingId = ref<string | null>(null);
 const editStatus = ref<CharacterStatus>('pending_assembly');
 const editRepairNote = ref('');
 const expandedIds = ref<Set<string>>(new Set());
+
+onMounted(() => {
+  clearSelection();
+});
 
 const visibleIds = computed(() => filteredCharacters.value.map(c => c.id));
 
@@ -70,7 +80,7 @@ const storyStats = computed(() => {
 const filteredCharacters = computed(() => {
   let chars = [...storyCharacters.value];
   if (filterMode.value === 'incomplete') {
-    chars = chars.filter(c => c.status !== 'completed');
+    chars = chars.filter(c => c.status !== 'completed' && c.status !== 'ready_to_pack');
   } else if (filterMode.value === 'risk') {
     chars = chars.filter(c => {
       const hasRisk = c.riskLevel === 'high' || c.riskLevel === 'critical';
@@ -80,6 +90,10 @@ const filteredCharacters = computed(() => {
     });
   }
   return chars;
+});
+
+const incompleteCount = computed(() => {
+  return storyCharacters.value.filter(c => c.status !== 'completed' && c.status !== 'ready_to_pack').length;
 });
 
 const completionPercentage = computed(() => {
@@ -199,11 +213,25 @@ const riskIconMap = {
 function goBack() {
   window.history.back();
 }
+
+function openCreate() {
+  editingCharacter.value = null;
+  showModal.value = true;
+}
+
+function closeModal() {
+  showModal.value = false;
+  editingCharacter.value = null;
+}
+
+function handleSaved() {
+  // 新增角色后不需要特殊处理，数据会自动同步
+}
 </script>
 
 <template>
   <div class="min-h-screen flex flex-col">
-    <TopBar :visible-ids="visibleIds" />
+    <TopBar :visible-ids="visibleIds" @open-create="openCreate" />
 
     <main class="flex-1 max-w-[1400px] w-full mx-auto px-3 sm:px-6 py-4 space-y-4">
       <div class="flex items-center justify-between gap-3">
@@ -335,7 +363,7 @@ function goBack() {
                 ]"
                 @click="filterMode = 'incomplete'"
               >
-                仅看未完成 ({{ storyCharacters.length - storyStats.completed }})
+                仅看未完成 ({{ incompleteCount }})
               </button>
               <button
                 :class="[
@@ -531,6 +559,13 @@ function goBack() {
         <p>暂无故事数据</p>
       </div>
     </main>
+
+    <CharacterModal
+      :visible="showModal"
+      :edit-character="editingCharacter"
+      @close="closeModal"
+      @saved="handleSaved"
+    />
 
     <ToastContainer />
   </div>
