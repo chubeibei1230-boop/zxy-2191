@@ -7,6 +7,12 @@ export type CharacterStatus =
   | 'ready_to_pack'
   | 'completed';
 
+export type HandoverStatus =
+  | 'not_checked'
+  | 'confirmed'
+  | 'follow_up'
+  | 'has_risk';
+
 export interface AccessoryGap {
   name: string;
   required: number;
@@ -27,6 +33,8 @@ export interface Character {
   status: CharacterStatus;
   missingAccessories: AccessoryGap[];
   operationReminders: string[];
+  handoverStatus: HandoverStatus;
+  handoverNote: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +84,12 @@ export function normalizeCharacter(raw: any): Character {
     'ready_to_pack',
     'completed',
   ];
+  const handoverStatuses: HandoverStatus[] = [
+    'not_checked',
+    'confirmed',
+    'follow_up',
+    'has_risk',
+  ];
 
   const now = new Date().toISOString();
   const safeStr = (v: any, fallback = ''): string =>
@@ -89,6 +103,7 @@ export function normalizeCharacter(raw: any): Character {
 
   const risk = safeStr(raw?.riskLevel, 'low');
   const st = safeStr(raw?.status, 'pending_assembly');
+  const hs = safeStr(raw?.handoverStatus, 'not_checked');
 
   return {
     id: safeStr(raw?.id, 'char_' + Math.random().toString(36).slice(2, 12)),
@@ -108,6 +123,8 @@ export function normalizeCharacter(raw: any): Character {
       available: Math.max(0, safeNum(a?.available, 0)),
     })),
     operationReminders: safeArr(raw?.operationReminders, []).map((r: any) => safeStr(r, '')).filter(Boolean),
+    handoverStatus: handoverStatuses.includes(hs as HandoverStatus) ? (hs as HandoverStatus) : 'not_checked',
+    handoverNote: safeStr(raw?.handoverNote, ''),
     createdAt: safeStr(raw?.createdAt, now),
     updatedAt: safeStr(raw?.updatedAt, now),
   };
@@ -118,4 +135,11 @@ export const RISK_LABELS: Record<RiskLevel, string> = {
   medium: '中风险',
   high: '高风险',
   critical: '极高风险',
+};
+
+export const HANDOVER_LABELS: Record<HandoverStatus, string> = {
+  not_checked: '未核对',
+  confirmed: '可交接',
+  follow_up: '需跟进',
+  has_risk: '存在风险',
 };

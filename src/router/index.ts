@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomePage from '@/pages/HomePage.vue'
 import StoryChecklist from '@/pages/StoryChecklist.vue'
+import HandoverBoard from '@/pages/HandoverBoard.vue'
 
 // 定义路由配置
 const routes = [
@@ -13,6 +14,11 @@ const routes = [
     path: '/checklist',
     name: 'checklist',
     component: StoryChecklist,
+  },
+  {
+    path: '/handover',
+    name: 'handover',
+    component: HandoverBoard,
   },
   {
     path: '/about',

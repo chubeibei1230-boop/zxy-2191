@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue';
 import { X, Plus, Trash2 } from 'lucide-vue-next';
-import type { Character, AccessoryGap, RiskLevel, CharacterStatus } from '../types';
+import type { Character, AccessoryGap, RiskLevel, CharacterStatus, HandoverStatus } from '../types';
 import { STATUS_LABELS, RISK_LABELS } from '../types';
 import { useCharacters } from '../composables/useCharacters';
 import { useToast } from '../composables/useToast';
@@ -32,6 +32,8 @@ interface FormState {
   status: CharacterStatus;
   missingAccessories: AccessoryGap[];
   operationReminders: string[];
+  handoverStatus: HandoverStatus;
+  handoverNote: string;
 }
 
 const defaultForm: FormState = {
@@ -47,6 +49,8 @@ const defaultForm: FormState = {
   status: 'pending_assembly',
   missingAccessories: [],
   operationReminders: [],
+  handoverStatus: 'not_checked',
+  handoverNote: '',
 };
 
 const form = reactive<FormState>({ ...defaultForm });
@@ -74,6 +78,8 @@ watch(() => props.visible, (v) => {
         status: props.editCharacter.status,
         missingAccessories: JSON.parse(JSON.stringify(props.editCharacter.missingAccessories)),
         operationReminders: [...props.editCharacter.operationReminders],
+        handoverStatus: props.editCharacter.handoverStatus,
+        handoverNote: props.editCharacter.handoverNote,
       });
     } else {
       Object.assign(form, JSON.parse(JSON.stringify(defaultForm)));
