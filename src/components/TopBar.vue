@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import { useRouter } from 'vue-router';
 import {
   Upload,
   Download,
@@ -8,6 +9,8 @@ import {
   ListChecks,
   AlertTriangle,
   AlertCircle,
+  ClipboardList,
+  Home,
 } from 'lucide-vue-next';
 import { useCharacters } from '../composables/useCharacters';
 import { useAutoCheck } from '../composables/useAutoCheck';
@@ -16,6 +19,8 @@ import { useToast } from '../composables/useToast';
 import { useBatchOperations } from '../composables/useBatchOperations';
 import type { CharacterStatus } from '../types';
 import { STATUS_LABELS, BATCH_STATUSES } from '../types';
+
+const router = useRouter();
 
 const props = defineProps<{
   visibleIds?: string[];
@@ -107,7 +112,35 @@ function handleBatchStatus(status: CharacterStatus) {
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-          <div class="flex items-center gap-2 mr-2 bg-white/10 rounded-md px-3 py-1.5">
+          <button
+            :class="[
+              'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
+              router.currentRoute.value.name === 'home'
+                ? 'bg-white/20 text-white'
+                : 'bg-white/10 text-rice-100 hover:bg-white/20'
+            ]"
+            @click="router.push('/')"
+          >
+            <Home class="w-4 h-4" />
+            <span class="hidden sm:inline">角色管理</span>
+            <span class="sm:hidden">管理</span>
+          </button>
+
+          <button
+            :class="[
+              'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
+              router.currentRoute.value.name === 'checklist'
+                ? 'bg-white/20 text-white'
+                : 'bg-white/10 text-rice-100 hover:bg-white/20'
+            ]"
+            @click="router.push('/checklist')"
+          >
+            <ClipboardList class="w-4 h-4" />
+            <span class="hidden sm:inline">故事演出清单</span>
+            <span class="sm:hidden">清单</span>
+          </button>
+
+          <div class="flex items-center gap-2 mx-2 bg-white/10 rounded-md px-3 py-1.5">
             <AlertCircle class="w-4 h-4 text-rice-200" />
             <span class="text-xs">共 <span class="font-bold text-rice-100">{{ characters.length }}</span> 个角色</span>
             <span v-if="errorCount > 0" class="flex items-center gap-1 text-xs text-red-300">
