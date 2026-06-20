@@ -1,14 +1,35 @@
 import { ref, computed, watch } from 'vue';
 import type { Character } from '../types';
+import { normalizeCharacter } from '../types';
 import { mockCharacters } from '../data/mockData';
 
 const STORAGE_KEY = 'shadow-puppetry-characters';
+
+type Listener = () => void;
+const importListeners: Listener[] = [];
+
+export function onCharactersImported(listener: Listener) {
+  importListeners.push(listener);
+  return () => {
+    const idx = importListeners.indexOf(listener);
+    if (idx !== -1) importListeners.splice(idx, 1);
+  };
+}
+
+function notifyImportListeners() {
+  importListeners.forEach(fn => {
+    try { fn(); } catch { /* noop */ }
+  });
+}
 
 function loadFromStorage(): Character[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map(item => normalizeCharacter(item));
+      }
     }
   } catch {
     console.warn('Failed to load characters from storage');
@@ -37,12 +58,12 @@ export function useCharacters() {
 
   function addCharacter(data: Omit<Character, 'id' | 'createdAt' | 'updatedAt'>) {
     const now = new Date().toISOString();
-    const newChar: Character = {
+    const newChar: Character = normalizeCharacter({
       ...data,
       id: generateId(),
       createdAt: now,
       updatedAt: now,
-    };
+    });
     characters.value.push(newChar);
     return newChar;
   }
@@ -50,11 +71,11 @@ export function useCharacters() {
   function updateCharacter(id: string, updates: Partial<Character>) {
     const index = characters.value.findIndex(c => c.id === id);
     if (index !== -1) {
-      characters.value[index] = {
+      characters.value[index] = normalizeCharacter({
         ...characters.value[index],
         ...updates,
         updatedAt: new Date().toISOString(),
-      };
+      });
       return characters.value[index];
     }
     return null;
@@ -73,13 +94,13 @@ export function useCharacters() {
     const original = characters.value.find(c => c.id === id);
     if (!original) return null;
     const now = new Date().toISOString();
-    const copy: Character = {
+    const copy: Character = normalizeCharacter({
       ...JSON.parse(JSON.stringify(original)),
       id: generateId(),
-      name: original.name + ' (副本)',
+      name: (original.name || '未命名') + ' (副本)',
       createdAt: now,
       updatedAt: now,
-    };
+    });
     characters.value.push(copy);
     return copy;
   }
@@ -102,19 +123,30 @@ export function useCharacters() {
     return JSON.stringify(characters.value, null, 2);
   }
 
-  function importData(jsonStr: string): { success: boolean; count: number } {
+  function importData(jsonStr: string): { success: boolean; count: number; invalidCount: number } {
     try {
-      const data = JSON.parse(jsonStr);
-      if (!Array.isArray(data)) {
-        return { success: false, count: 0 };
+      const parsed = JSON.parse(jsonStr);
+      if (!Array.isArray(parsed)) {
+        return { success: false, count: 0, invalidCount: 0 };
       }
-      const validData: Character[] = data.filter(item =>
-        item && typeof item === 'object' && 'name' in item && 'id' in item
-      );
-      characters.value = validData;
-      return { success: true, count: validData.length };
+      const normalized: Character[] = [];
+      let invalidCount = 0;
+      parsed.forEach((item) => {
+        if (!item || typeof item !== 'object') {
+          invalidCount++;
+          return;
+        }
+        try {
+          normalized.push(normalizeCharacter(item));
+        } catch {
+          invalidCount++;
+        }
+      });
+      characters.value = normalized;
+      notifyImportListeners();
+      return { success: true, count: normalized.length, invalidCount };
     } catch {
-      return { success: false, count: 0 };
+      return { success: false, count: 0, invalidCount: 0 };
     }
   }
 

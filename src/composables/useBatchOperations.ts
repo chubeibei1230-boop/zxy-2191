@@ -32,9 +32,12 @@ export function useBatchOperations() {
 
   const hasSelection = computed(() => selectedIds.value.size > 0);
 
-  function batchUpdateStatus(status: CharacterStatus): number {
+  function batchUpdateStatus(status: CharacterStatus, visibleIds?: string[]): number {
     let count = 0;
     selectedIds.value.forEach(id => {
+      if (visibleIds && !visibleIds.includes(id)) {
+        return;
+      }
       if (updateCharacter(id, { status })) {
         count++;
       }

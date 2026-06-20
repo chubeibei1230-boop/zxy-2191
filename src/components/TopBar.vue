@@ -8,7 +8,6 @@ import {
   ListChecks,
   AlertTriangle,
   AlertCircle,
-  FileJson,
 } from 'lucide-vue-next';
 import { useCharacters } from '../composables/useCharacters';
 import { useAutoCheck } from '../composables/useAutoCheck';
@@ -16,17 +15,22 @@ import { useDemoMode } from '../composables/useDemoMode';
 import { useToast } from '../composables/useToast';
 import { useBatchOperations } from '../composables/useBatchOperations';
 import type { CharacterStatus } from '../types';
-import { STATUS_LABELS } from '../types';
+import { STATUS_LABELS, BATCH_STATUSES } from '../types';
 
-defineEmits<{
+const props = defineProps<{
+  visibleIds?: string[];
+}>();
+
+const emit = defineEmits<{
   (e: 'openCreate'): void;
+  (e: 'dataImported'): void;
 }>();
 
 const { exportData, importData, characters } = useCharacters();
 const { errorCount, warningCount } = useAutoCheck();
 const { isDemoMode, toggleDemoMode } = useDemoMode();
 const { success, error, warning } = useToast();
-const { hasSelection, selectedCount, batchUpdateStatus, clearSelection } = useBatchOperations();
+const { selectedIds, hasSelection, selectedCount, batchUpdateStatus, clearSelection } = useBatchOperations();
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const showBatchMenu = ref(false);
@@ -57,9 +61,15 @@ function handleFileChange(event: Event) {
     const content = e.target?.result as string;
     const result = importData(content);
     if (result.success) {
-      success(`成功导入 ${result.count} 条角色数据`);
+      if (result.invalidCount > 0) {
+        warning(`成功导入 ${result.count} 条数据，另有 ${result.invalidCount} 条格式异常已跳过或补全`);
+      } else {
+        success(`成功导入 ${result.count} 条角色数据`);
+      }
+      clearSelection();
+      emit('dataImported');
     } else {
-      error('导入失败：文件格式不正确');
+      error('导入失败：文件格式不正确或内容损坏');
     }
   };
   reader.onerror = () => {
@@ -70,9 +80,14 @@ function handleFileChange(event: Event) {
 }
 
 function handleBatchStatus(status: CharacterStatus) {
-  const count = batchUpdateStatus(status);
+  const count = batchUpdateStatus(status, props.visibleIds);
   success(`已将 ${count} 个角色标记为「${STATUS_LABELS[status]}」`);
-  clearSelection();
+  if (props.visibleIds) {
+    props.visibleIds.forEach(id => selectedIds.value.delete(id));
+    selectedIds.value = new Set(selectedIds.value);
+  } else {
+    clearSelection();
+  }
   showBatchMenu.value = false;
 }
 </script>
@@ -139,12 +154,12 @@ function handleBatchStatus(status: CharacterStatus) {
               class="absolute right-0 top-full mt-1 w-40 bg-white rounded-md shadow-lg border border-ink-200 py-1 z-50"
             >
               <button
-                v-for="(label, key) in STATUS_LABELS"
-                :key="key"
+                v-for="statusKey in BATCH_STATUSES"
+                :key="statusKey"
                 class="w-full text-left px-3 py-2 text-sm text-ink-700 hover:bg-rice-100 transition-colors"
-                @click="handleBatchStatus(key as CharacterStatus)"
+                @click="handleBatchStatus(statusKey)"
               >
-                标记为「{{ label }}」
+                标记为「{{ STATUS_LABELS[statusKey] }}」
               </button>
             </div>
           </div>
