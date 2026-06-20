@@ -319,7 +319,7 @@ function countCharactersInStory(story: string): number {
           <div class="flex items-center justify-between text-sm py-2 border-t border-rice-200">
             <div class="flex items-center gap-1.5 text-ink-500">
               <Users class="w-4 h-4" />
-              <span>{{ plan.characters.length }} / {{ countCharactersInStory(plan.story) }} 角色</span>
+              <span>{{ getPlanStats(plan).total }} / {{ countCharactersInStory(plan.story) }} 角色</span>
             </div>
             <div class="flex-1 mx-3">
               <div class="w-full h-1.5 bg-ink-100 rounded-full overflow-hidden">
@@ -332,7 +332,7 @@ function countCharactersInStory(story: string): number {
             <span class="font-medium text-ink-600">{{ getPlanStats(plan).progress }}%</span>
           </div>
 
-          <div class="grid grid-cols-4 gap-1 mt-3 text-center">
+          <div class="grid grid-cols-5 gap-1 mt-3 text-center">
             <div class="bg-ink-50 rounded py-1.5">
               <div class="text-lg font-bold text-ink-700">{{ getPlanStats(plan).total }}</div>
               <div class="text-[10px] text-ink-500">总数</div>
@@ -346,8 +346,12 @@ function countCharactersInStory(story: string): number {
               <div class="text-[10px] text-orange-600">复排</div>
             </div>
             <div class="bg-red-50 rounded py-1.5">
-              <div class="text-lg font-bold text-red-700">{{ getPlanStats(plan).fail + getPlanStats(plan).notStarted }}</div>
+              <div class="text-lg font-bold text-red-700">{{ getPlanStats(plan).fail }}</div>
               <div class="text-[10px] text-red-600">未过</div>
+            </div>
+            <div class="bg-ink-50 rounded py-1.5">
+              <div class="text-lg font-bold text-ink-600">{{ getPlanStats(plan).notStarted }}</div>
+              <div class="text-[10px] text-ink-500">未开始</div>
             </div>
           </div>
 

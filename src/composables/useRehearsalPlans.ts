@@ -1,6 +1,7 @@
 import { ref, computed, watch } from 'vue';
-import type { RehearsalPlan, RehearsalCharacter, RehearsalStatus, RehearsalResult } from '../types';
+import type { RehearsalPlan, RehearsalCharacter, RehearsalStatus, RehearsalResult, Character } from '../types';
 import { normalizeRehearsalPlan } from '../types';
+import { useCharacters } from './useCharacters';
 
 const STORAGE_KEY = 'shadow-puppetry-rehearsal-plans';
 
@@ -85,6 +86,38 @@ watch(rehearsalPlans, (newVal) => {
 }, { deep: true });
 
 export function useRehearsalPlans() {
+  const { characters } = useCharacters();
+
+  watch(characters, () => {
+    cleanInvalidCharacters();
+  }, { deep: true });
+
+  function cleanInvalidCharacters() {
+    const validIds = new Set(characters.value.map(c => c.id));
+    let changed = false;
+    rehearsalPlans.value.forEach((plan, idx) => {
+      const valid = plan.characters.filter(c => validIds.has(c.characterId));
+      if (valid.length !== plan.characters.length) {
+        rehearsalPlans.value[idx] = normalizeRehearsalPlan({
+          ...plan,
+          characters: valid,
+          updatedAt: new Date().toISOString(),
+        });
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  function getValidPlanCharacters(plan: RehearsalPlan): (RehearsalCharacter & { character: Character })[] {
+    return plan.characters
+      .map(rc => {
+        const character = characters.value.find(c => c.id === rc.characterId);
+        return character ? { ...rc, character } : null;
+      })
+      .filter(Boolean) as (RehearsalCharacter & { character: Character })[];
+  }
+
   function generateId(): string {
     return 'rh_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   }
@@ -176,22 +209,31 @@ export function useRehearsalPlans() {
     });
   }
 
-  function moveCharacterOrder(planId: string, characterId: string, direction: 'up' | 'down') {
+  function moveCharacterOrder(planId: string, characterId: string, direction: 'up' | 'down', visibleCharacterIds?: string[]) {
     const plan = getPlanById(planId);
     if (!plan) return null;
 
-    const sorted = [...plan.characters].sort((a, b) => a.order - b.order);
-    const idx = sorted.findIndex(c => c.characterId === characterId);
+    let valid = getValidPlanCharacters(plan).sort((a, b) => a.order - b.order);
+    if (visibleCharacterIds) {
+      valid = valid.filter(rc => visibleCharacterIds.includes(rc.characterId));
+    }
+    const idx = valid.findIndex(c => c.characterId === characterId);
     if (idx === -1) return plan;
 
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= sorted.length) return plan;
+    if (swapIdx < 0 || swapIdx >= valid.length) return plan;
 
-    const tempOrder = sorted[idx].order;
-    sorted[idx] = { ...sorted[idx], order: sorted[swapIdx].order };
-    sorted[swapIdx] = { ...sorted[swapIdx], order: tempOrder };
+    const targetId = valid[swapIdx].characterId;
+    const all = [...plan.characters];
+    const aIdx = all.findIndex(c => c.characterId === characterId);
+    const bIdx = all.findIndex(c => c.characterId === targetId);
+    if (aIdx === -1 || bIdx === -1) return plan;
 
-    return updatePlan(planId, { characters: sorted });
+    const tempOrder = all[aIdx].order;
+    all[aIdx] = { ...all[aIdx], order: all[bIdx].order };
+    all[bIdx] = { ...all[bIdx], order: tempOrder };
+
+    return updatePlan(planId, { characters: all });
   }
 
   const allVenues = computed(() => {
@@ -205,11 +247,12 @@ export function useRehearsalPlans() {
   });
 
   function getPlanStats(plan: RehearsalPlan) {
-    const total = plan.characters.length;
-    const pass = plan.characters.filter(c => c.rehearsalResult === 'pass').length;
-    const fail = plan.characters.filter(c => c.rehearsalResult === 'fail').length;
-    const needRehearse = plan.characters.filter(c => c.rehearsalResult === 'need_rehearse').length;
-    const notStarted = plan.characters.filter(c => c.rehearsalResult === 'not_started').length;
+    const valid = getValidPlanCharacters(plan);
+    const total = valid.length;
+    const pass = valid.filter(c => c.rehearsalResult === 'pass').length;
+    const fail = valid.filter(c => c.rehearsalResult === 'fail').length;
+    const needRehearse = valid.filter(c => c.rehearsalResult === 'need_rehearse').length;
+    const notStarted = valid.filter(c => c.rehearsalResult === 'not_started').length;
     const progress = total > 0 ? Math.round(((total - notStarted) / total) * 100) : 0;
     const passRate = total > 0 && (total - notStarted) > 0 ? Math.round((pass / (total - notStarted)) * 100) : 0;
 
@@ -229,5 +272,7 @@ export function useRehearsalPlans() {
     allVenues,
     allPlanOwners,
     getPlanStats,
+    getValidPlanCharacters,
+    cleanInvalidCharacters,
   };
 }

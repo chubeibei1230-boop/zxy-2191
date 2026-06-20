@@ -67,6 +67,7 @@ const {
   addCharacterToPlan,
   moveCharacterOrder,
   getPlanStats,
+  getValidPlanCharacters,
 } = useRehearsalPlans();
 const { characters, allStories } = useCharacters();
 const { success, warning, error } = useToast();
@@ -93,7 +94,10 @@ const editResultForm = reactive<{
   checkedBy: '',
 });
 
-const visibleIds = computed(() => plan.value?.characters.map(c => c.characterId) ?? []);
+const visibleIds = computed(() => {
+  if (!plan.value) return [];
+  return getValidPlanCharacters(plan.value).map(c => c.characterId);
+});
 
 onMounted(() => {
   clearSelection();
@@ -101,13 +105,31 @@ onMounted(() => {
 
 const sortedCharacters = computed(() => {
   if (!plan.value) return [];
-  let list = [...plan.value.characters].sort((a, b) => a.order - b.order);
+  let list = getValidPlanCharacters(plan.value)
+    .map(vc => ({ characterId: vc.characterId, order: vc.order, rehearsalResult: vc.rehearsalResult, rehearsalNote: vc.rehearsalNote, checkedBy: vc.checkedBy }))
+    .sort((a, b) => a.order - b.order);
   
   if (filterResult.value) {
     list = list.filter(c => c.rehearsalResult === filterResult.value);
   }
   
   return list;
+});
+
+const visibleCharacterIds = computed(() => sortedCharacters.value.map(c => c.characterId));
+
+const validCharactersSorted = computed(() => {
+  if (!plan.value) return [];
+  return getValidPlanCharacters(plan.value)
+    .map(vc => ({
+      characterId: vc.characterId,
+      order: vc.order,
+      rehearsalResult: vc.rehearsalResult,
+      rehearsalNote: vc.rehearsalNote,
+      checkedBy: vc.checkedBy,
+      character: vc.character,
+    }))
+    .sort((a, b) => a.order - b.order);
 });
 
 const availableCharacters = computed(() => {
@@ -132,9 +154,7 @@ const riskLevelPriority: Record<RiskLevel, number> = {
 
 const overallRisk = computed(() => {
   if (!plan.value) return 'low' as RiskLevel;
-  const chars = plan.value.characters
-    .map(rc => getFullCharacter(rc.characterId))
-    .filter(Boolean) as Character[];
+  const chars = getValidPlanCharacters(plan.value).map(vc => vc.character);
   if (chars.length === 0) return 'low';
   return chars.reduce((max: RiskLevel, c) => {
     return riskLevelPriority[c.riskLevel] > riskLevelPriority[max] ? c.riskLevel : max;
@@ -143,33 +163,28 @@ const overallRisk = computed(() => {
 
 const needPartsCount = computed(() => {
   if (!plan.value) return 0;
-  return plan.value.characters.filter(rc => {
-    const c = getFullCharacter(rc.characterId);
-    return c && c.missingAccessories.some(a => a.available < a.required);
+  return getValidPlanCharacters(plan.value).filter(vc => {
+    return vc.character.missingAccessories.some(a => a.available < a.required);
   }).length;
 });
 
 const highRiskCount = computed(() => {
   if (!plan.value) return 0;
-  return plan.value.characters.filter(rc => {
-    const c = getFullCharacter(rc.characterId);
-    return c && (c.riskLevel === 'high' || c.riskLevel === 'critical');
+  return getValidPlanCharacters(plan.value).filter(vc => {
+    return vc.character.riskLevel === 'high' || vc.character.riskLevel === 'critical';
   }).length;
 });
 
 const unassignedOwnerCount = computed(() => {
   if (!plan.value) return 0;
-  return plan.value.characters.filter(rc => {
-    const c = getFullCharacter(rc.characterId);
-    return c && !c.owner;
+  return getValidPlanCharacters(plan.value).filter(vc => {
+    return !vc.character.owner;
   }).length;
 });
 
 const handoverSummary = computed(() => {
   if (!plan.value) return null;
-  const chars = plan.value.characters
-    .map(rc => getFullCharacter(rc.characterId))
-    .filter(Boolean) as Character[];
+  const chars = getValidPlanCharacters(plan.value).map(vc => vc.character);
   
   const hasRisk = chars.some(c => {
     const missing = c.missingAccessories.some(a => a.available < a.required);
@@ -187,10 +202,8 @@ const handoverSummary = computed(() => {
 });
 
 const preparationPercentage = computed(() => {
-  if (!plan.value || plan.value.characters.length === 0) return 0;
-  const chars = plan.value.characters
-    .map(rc => getFullCharacter(rc.characterId))
-    .filter(Boolean) as Character[];
+  if (!plan.value) return 0;
+  const chars = getValidPlanCharacters(plan.value).map(vc => vc.character);
   if (chars.length === 0) return 0;
   const ready = chars.filter(c => c.status === 'ready_to_pack' || c.status === 'completed').length;
   return Math.round((ready / chars.length) * 100);
@@ -289,7 +302,12 @@ function removeCharacter(characterId: string) {
 
 function moveOrder(characterId: string, direction: 'up' | 'down') {
   if (!plan.value) return;
-  moveCharacterOrder(plan.value.id, characterId, direction);
+  moveCharacterOrder(
+    plan.value.id,
+    characterId,
+    direction,
+    filterResult.value ? visibleCharacterIds.value : undefined
+  );
 }
 
 function goBack() {
@@ -506,19 +524,19 @@ const riskIconMap = {
           </div>
           <div v-else class="space-y-2">
             <div
-              v-for="rc in plan.characters"
+              v-for="rc in validCharactersSorted"
               :key="rc.characterId"
             >
-              <template v-if="getFullCharacter(rc.characterId) && getGapSummary(getFullCharacter(rc.characterId)!).length > 0">
+              <template v-if="getGapSummary(rc.character).length > 0">
                 <div class="p-2 bg-red-50 rounded-md border border-red-100">
                   <div class="flex items-center justify-between mb-1">
                     <span class="text-sm font-medium text-red-800">
-                      {{ getFullCharacter(rc.characterId)!.name }}
+                      {{ rc.character.name }}
                     </span>
                     <span class="text-xs text-ink-500">#{{ rc.order }}</span>
                   </div>
                   <div class="text-xs text-red-600">
-                    {{ getGapSummary(getFullCharacter(rc.characterId)!).join('，') }}
+                    {{ getGapSummary(rc.character).join('，') }}
                   </div>
                 </div>
               </template>
@@ -539,21 +557,21 @@ const riskIconMap = {
           </div>
           <div v-else class="space-y-2">
             <div
-              v-for="rc in plan.characters"
+              v-for="rc in validCharactersSorted"
               :key="rc.characterId"
             >
-              <template v-if="getFullCharacter(rc.characterId) && (getFullCharacter(rc.characterId)!.riskLevel === 'high' || getFullCharacter(rc.characterId)!.riskLevel === 'critical')">
-                <div class="p-2" :class="getFullCharacter(rc.characterId)!.riskLevel === 'critical' ? 'bg-red-50 border border-red-100 rounded-md' : 'bg-orange-50 border border-orange-100 rounded-md'">
+              <template v-if="rc.character.riskLevel === 'high' || rc.character.riskLevel === 'critical'">
+                <div class="p-2" :class="rc.character.riskLevel === 'critical' ? 'bg-red-50 border border-red-100 rounded-md' : 'bg-orange-50 border border-orange-100 rounded-md'">
                   <div class="flex items-center justify-between mb-1">
-                    <span class="text-sm font-medium" :class="getFullCharacter(rc.characterId)!.riskLevel === 'critical' ? 'text-red-800' : 'text-orange-800'">
-                      {{ getFullCharacter(rc.characterId)!.name }}
+                    <span class="text-sm font-medium" :class="rc.character.riskLevel === 'critical' ? 'text-red-800' : 'text-orange-800'">
+                      {{ rc.character.name }}
                     </span>
-                    <span :class="['tag border text-xs', riskColors[getFullCharacter(rc.characterId)!.riskLevel]]">
-                      {{ RISK_LABELS[getFullCharacter(rc.characterId)!.riskLevel] }}
+                    <span :class="['tag border text-xs', riskColors[rc.character.riskLevel]]">
+                      {{ RISK_LABELS[rc.character.riskLevel] }}
                     </span>
                   </div>
-                  <p v-if="getFullCharacter(rc.characterId)!.riskNote" class="text-xs line-clamp-2" :class="getFullCharacter(rc.characterId)!.riskLevel === 'critical' ? 'text-red-600' : 'text-orange-600'">
-                    {{ getFullCharacter(rc.characterId)!.riskNote }}
+                  <p v-if="rc.character.riskNote" class="text-xs line-clamp-2" :class="rc.character.riskLevel === 'critical' ? 'text-red-600' : 'text-orange-600'">
+                    {{ rc.character.riskNote }}
                   </p>
                 </div>
               </template>
@@ -574,33 +592,31 @@ const riskIconMap = {
           </div>
           <div class="space-y-2">
             <div
-              v-for="rc in plan.characters"
+              v-for="rc in validCharactersSorted"
               :key="rc.characterId"
             >
-              <template v-if="getFullCharacter(rc.characterId)">
-                <div
-                  :class="[
-                    'p-2 rounded-md border',
-                    hasObjectiveRisk(getFullCharacter(rc.characterId)!)
-                      ? 'bg-red-50 border-red-100'
-                      : getFullCharacter(rc.characterId)!.handoverStatus === 'follow_up'
-                      ? 'bg-yellow-50 border-yellow-100'
-                      : getFullCharacter(rc.characterId)!.handoverStatus === 'confirmed'
-                      ? 'bg-bamboo-50 border-bamboo-100'
-                      : 'bg-gray-50 border-gray-100'
-                  ]"
-                >
-                  <div class="flex items-center justify-between mb-0.5">
-                    <span class="text-sm font-medium text-ink-800">{{ getFullCharacter(rc.characterId)!.name }}</span>
-                    <span :class="['tag border text-xs', handoverColors[getFullCharacter(rc.characterId)!.handoverStatus]]">
-                      {{ HANDOVER_LABELS[getFullCharacter(rc.characterId)!.handoverStatus] }}
-                    </span>
-                  </div>
-                  <p v-if="getFullCharacter(rc.characterId)!.handoverNote" class="text-xs text-ink-500 line-clamp-1">
-                    {{ getFullCharacter(rc.characterId)!.handoverNote }}
-                  </p>
+              <div
+                :class="[
+                  'p-2 rounded-md border',
+                  hasObjectiveRisk(rc.character)
+                    ? 'bg-red-50 border-red-100'
+                    : rc.character.handoverStatus === 'follow_up'
+                    ? 'bg-yellow-50 border-yellow-100'
+                    : rc.character.handoverStatus === 'confirmed'
+                    ? 'bg-bamboo-50 border-bamboo-100'
+                    : 'bg-gray-50 border-gray-100'
+                ]"
+              >
+                <div class="flex items-center justify-between mb-0.5">
+                  <span class="text-sm font-medium text-ink-800">{{ rc.character.name }}</span>
+                  <span :class="['tag border text-xs', handoverColors[rc.character.handoverStatus]]">
+                    {{ HANDOVER_LABELS[rc.character.handoverStatus] }}
+                  </span>
                 </div>
-              </template>
+                <p v-if="rc.character.handoverNote" class="text-xs text-ink-500 line-clamp-1">
+                  {{ rc.character.handoverNote }}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -610,27 +626,27 @@ const riskIconMap = {
             <FileText class="w-5 h-5 text-blue-500" />
             <h4 class="font-bold text-ink-800">待处理事项</h4>
             <span class="tag border bg-blue-50 text-blue-600 border-blue-200 ml-auto">
-              {{ plan.characters.filter(rc => getFullCharacter(rc.characterId) && (getPendingItems(getFullCharacter(rc.characterId)!).length > 0 || !getFullCharacter(rc.characterId)!.owner)).length }}项
+              {{ validCharactersSorted.filter(rc => getPendingItems(rc.character).length > 0 || !rc.character.owner).length }}项
             </span>
           </div>
-          <div v-if="unassignedOwnerCount === 0 && plan.characters.every(rc => !getFullCharacter(rc.characterId) || getPendingItems(getFullCharacter(rc.characterId)!).length === 0)" class="text-sm text-ink-400 text-center py-4">
+          <div v-if="unassignedOwnerCount === 0 && validCharactersSorted.every(rc => getPendingItems(rc.character).length === 0 && rc.character.owner)" class="text-sm text-ink-400 text-center py-4">
             无待处理事项
           </div>
           <div v-else class="space-y-2">
             <div
-              v-for="rc in plan.characters"
+              v-for="rc in validCharactersSorted"
               :key="rc.characterId"
             >
-              <template v-if="getFullCharacter(rc.characterId) && (!getFullCharacter(rc.characterId)!.owner || getPendingItems(getFullCharacter(rc.characterId)!).length > 0)">
+              <template v-if="!rc.character.owner || getPendingItems(rc.character).length > 0">
                 <div class="p-2 bg-blue-50 rounded-md border border-blue-100">
                   <div class="flex items-center justify-between mb-1">
-                    <span class="text-sm font-medium text-blue-800">{{ getFullCharacter(rc.characterId)!.name }}</span>
-                    <span v-if="!getFullCharacter(rc.characterId)!.owner" class="tag border bg-yellow-50 text-yellow-600 border-yellow-200 text-xs">
+                    <span class="text-sm font-medium text-blue-800">{{ rc.character.name }}</span>
+                    <span v-if="!rc.character.owner" class="tag border bg-yellow-50 text-yellow-600 border-yellow-200 text-xs">
                       未分配责任人
                     </span>
                   </div>
-                  <ul v-if="getPendingItems(getFullCharacter(rc.characterId)!).length > 0" class="space-y-0.5">
-                    <li v-for="(item, idx) in getPendingItems(getFullCharacter(rc.characterId)!)" :key="idx" class="text-xs text-blue-600 flex items-start gap-1">
+                  <ul v-if="getPendingItems(rc.character).length > 0" class="space-y-0.5">
+                    <li v-for="(item, idx) in getPendingItems(rc.character)" :key="idx" class="text-xs text-blue-600 flex items-start gap-1">
                       <ArrowRight class="w-3 h-3 mt-0.5 flex-shrink-0" />
                       <span class="line-clamp-1">{{ item }}</span>
                     </li>

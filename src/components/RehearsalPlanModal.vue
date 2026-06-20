@@ -99,9 +99,19 @@ watch(() => props.visible, (v) => {
   }
 });
 
-watch(() => form.story, () => {
+watch(() => form.story, (newStory, oldStory) => {
+  if (!newStory || newStory === oldStory) return;
   if (!isEdit.value) {
     form.characters = [];
+  } else {
+    const validIds = new Set(
+      characters.value.filter(c => c.story === newStory).map(c => c.id)
+    );
+    const before = form.characters.length;
+    form.characters = form.characters.filter(c => validIds.has(c.characterId));
+    if (form.characters.length !== before) {
+      warning(`已移除 ${before - form.characters.length} 个不属于故事「${newStory}」的角色`);
+    }
   }
 });
 
