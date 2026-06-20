@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomePage from '@/pages/HomePage.vue'
 import StoryChecklist from '@/pages/StoryChecklist.vue'
 import HandoverBoard from '@/pages/HandoverBoard.vue'
+import RehearsalPlanList from '@/pages/RehearsalPlanList.vue'
+import RehearsalPlanDetail from '@/pages/RehearsalPlanDetail.vue'
 
 // 定义路由配置
 const routes = [
@@ -19,6 +21,16 @@ const routes = [
     path: '/handover',
     name: 'handover',
     component: HandoverBoard,
+  },
+  {
+    path: '/rehearsal',
+    name: 'rehearsal-list',
+    component: RehearsalPlanList,
+  },
+  {
+    path: '/rehearsal/:id',
+    name: 'rehearsal-detail',
+    component: RehearsalPlanDetail,
   },
   {
     path: '/about',

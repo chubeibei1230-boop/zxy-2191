@@ -12,6 +12,7 @@ import {
   ClipboardList,
   Home,
   ClipboardCheck,
+  Theater,
 } from 'lucide-vue-next';
 import { useCharacters } from '../composables/useCharacters';
 import { useAutoCheck } from '../composables/useAutoCheck';
@@ -153,6 +154,20 @@ function handleBatchStatus(status: CharacterStatus) {
             <ClipboardCheck class="w-4 h-4" />
             <span class="hidden sm:inline">演出交接看板</span>
             <span class="sm:hidden">交接</span>
+          </button>
+
+          <button
+            :class="[
+              'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
+              router.currentRoute.value.name === 'rehearsal-list' || router.currentRoute.value.name === 'rehearsal-detail'
+                ? 'bg-white/20 text-white'
+                : 'bg-white/10 text-rice-100 hover:bg-white/20'
+            ]"
+            @click="router.push('/rehearsal')"
+          >
+            <Theater class="w-4 h-4" />
+            <span class="hidden sm:inline">排练计划</span>
+            <span class="sm:hidden">排练</span>
           </button>
 
           <div class="flex items-center gap-2 mx-2 bg-white/10 rounded-md px-3 py-1.5">

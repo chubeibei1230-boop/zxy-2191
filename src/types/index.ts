@@ -143,3 +143,83 @@ export const HANDOVER_LABELS: Record<HandoverStatus, string> = {
   follow_up: '需跟进',
   has_risk: '存在风险',
 };
+
+export type RehearsalStatus = 'draft' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+
+export type RehearsalResult = 'not_started' | 'pass' | 'fail' | 'need_rehearse';
+
+export interface RehearsalCharacter {
+  characterId: string;
+  order: number;
+  rehearsalResult: RehearsalResult;
+  rehearsalNote: string;
+  checkedBy: string;
+}
+
+export interface RehearsalPlan {
+  id: string;
+  name: string;
+  story: string;
+  venue: string;
+  scheduledAt: string;
+  owner: string;
+  status: RehearsalStatus;
+  characters: RehearsalCharacter[];
+  problemNotes: string;
+  summaryNote: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const REHEARSAL_STATUS_LABELS: Record<RehearsalStatus, string> = {
+  draft: '草稿',
+  scheduled: '已排期',
+  in_progress: '进行中',
+  completed: '已完成',
+  cancelled: '已取消',
+};
+
+export const REHEARSAL_RESULT_LABELS: Record<RehearsalResult, string> = {
+  not_started: '未开始',
+  pass: '通过',
+  fail: '未通过',
+  need_rehearse: '需复排',
+};
+
+export function normalizeRehearsalPlan(raw: any): RehearsalPlan {
+  const statuses: RehearsalStatus[] = ['draft', 'scheduled', 'in_progress', 'completed', 'cancelled'];
+  const results: RehearsalResult[] = ['not_started', 'pass', 'fail', 'need_rehearse'];
+
+  const now = new Date().toISOString();
+  const safeStr = (v: any, fallback = ''): string =>
+    typeof v === 'string' ? v : v != null ? String(v) : fallback;
+  const safeArr = <T>(v: any, fallback: T[]): T[] =>
+    Array.isArray(v) ? v : fallback;
+
+  const status = safeStr(raw?.status, 'draft');
+  const chars = safeArr(raw?.characters, []);
+
+  return {
+    id: safeStr(raw?.id, 'rh_' + Math.random().toString(36).slice(2, 12)),
+    name: safeStr(raw?.name, '未命名排练场次'),
+    story: safeStr(raw?.story, '未分类'),
+    venue: safeStr(raw?.venue, ''),
+    scheduledAt: safeStr(raw?.scheduledAt, now),
+    owner: safeStr(raw?.owner, ''),
+    status: statuses.includes(status as RehearsalStatus) ? (status as RehearsalStatus) : 'draft',
+    characters: chars.map((c: any) => {
+      const res = safeStr(c?.rehearsalResult, 'not_started');
+      return {
+        characterId: safeStr(c?.characterId, ''),
+        order: Math.max(1, Number(c?.order) || 1),
+        rehearsalResult: results.includes(res as RehearsalResult) ? (res as RehearsalResult) : 'not_started',
+        rehearsalNote: safeStr(c?.rehearsalNote, ''),
+        checkedBy: safeStr(c?.checkedBy, ''),
+      };
+    }).filter((c: RehearsalCharacter) => c.characterId),
+    problemNotes: safeStr(raw?.problemNotes, ''),
+    summaryNote: safeStr(raw?.summaryNote, ''),
+    createdAt: safeStr(raw?.createdAt, now),
+    updatedAt: safeStr(raw?.updatedAt, now),
+  };
+}
