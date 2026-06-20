@@ -18,7 +18,9 @@ import {
   Package,
   UserX,
   ClipboardCheck,
-  Home,
+  Filter,
+  ListTodo,
+  ListChecks,
 } from 'lucide-vue-next';
 import TopBar from '../components/TopBar.vue';
 import ToastContainer from '../components/ToastContainer.vue';
@@ -28,12 +30,13 @@ import { useBatchOperations } from '../composables/useBatchOperations';
 import type { Character, HandoverStatus, RiskLevel } from '../types';
 import { HANDOVER_LABELS, RISK_LABELS } from '../types';
 
-const { characters, allStories, allOwners, updateCharacter } = useCharacters();
-const { success } = useToast();
+const { characters, allStories, updateCharacter } = useCharacters();
+const { success, warning } = useToast();
 const { clearSelection } = useBatchOperations();
 
 const selectedStory = ref<string>('');
 const selectedOwner = ref<string>('');
+const listFilterMode = ref<'todo' | 'done' | 'all'>('todo');
 const editingId = ref<string | null>(null);
 const editHandoverStatus = ref<HandoverStatus>('not_checked');
 const editHandoverNote = ref('');
@@ -46,8 +49,16 @@ onMounted(() => {
 const visibleIds = computed(() => filteredCharacters.value.map(c => c.id));
 
 watch(allStories, (stories) => {
-  if (stories.length > 0 && !selectedStory.value) {
-    selectedStory.value = stories[0];
+  if (stories.length > 0) {
+    if (!selectedStory.value || !stories.includes(selectedStory.value)) {
+      selectedStory.value = stories[0];
+      selectedOwner.value = '';
+      expandedIds.value = new Set();
+    }
+  } else {
+    selectedStory.value = '';
+    selectedOwner.value = '';
+    expandedIds.value = new Set();
   }
 }, { immediate: true });
 
@@ -58,14 +69,38 @@ const storyCharacters = computed(() => {
     .sort((a, b) => a.demoOrder - b.demoOrder);
 });
 
+const storyOwners = computed(() => {
+  const set = new Set(storyCharacters.value.map(c => c.owner).filter(Boolean));
+  return Array.from(set).sort();
+});
+
+function hasObjectiveRisk(char: Character): boolean {
+  const hasMissingParts = char.missingAccessories.some(a => a.available < a.required);
+  const isHighRisk = char.riskLevel === 'high' || char.riskLevel === 'critical';
+  const noOwner = !char.owner;
+  return hasMissingParts || isHighRisk || noOwner;
+}
+
 const handoverStats = computed(() => {
   const chars = storyCharacters.value;
+  const confirmedChars = chars.filter(c => c.handoverStatus === 'confirmed' && !hasObjectiveRisk(c));
+  const hasRiskChars = chars.filter(c => c.handoverStatus === 'has_risk' || hasObjectiveRisk(c));
+  const followUpChars = chars.filter(c => {
+    if (c.handoverStatus === 'has_risk' || hasObjectiveRisk(c)) return false;
+    return c.handoverStatus === 'follow_up';
+  });
+  const notCheckedChars = chars.filter(c => {
+    if (c.handoverStatus === 'has_risk' || hasObjectiveRisk(c)) return false;
+    if (c.handoverStatus === 'follow_up') return false;
+    return c.handoverStatus === 'not_checked';
+  });
+
   return {
     total: chars.length,
-    confirmed: chars.filter(c => c.handoverStatus === 'confirmed').length,
-    followUp: chars.filter(c => c.handoverStatus === 'follow_up').length,
-    hasRisk: chars.filter(c => c.handoverStatus === 'has_risk').length,
-    notChecked: chars.filter(c => c.handoverStatus === 'not_checked').length,
+    confirmed: confirmedChars.length,
+    followUp: followUpChars.length,
+    hasRisk: hasRiskChars.length,
+    notChecked: notCheckedChars.length,
     needParts: chars.filter(c => c.missingAccessories.some(a => a.available < a.required)).length,
     highRisk: chars.filter(c => c.riskLevel === 'high' || c.riskLevel === 'critical').length,
     unassignedOwner: chars.filter(c => !c.owner).length,
@@ -78,10 +113,14 @@ const handoverConclusion = computed(() => {
   if (stats.total === 0) return null;
   
   if (stats.hasRisk > 0) {
+    const reasons: string[] = [];
+    if (stats.needParts > 0) reasons.push(`${stats.needParts}个角色缺件`);
+    if (stats.highRisk > 0) reasons.push(`${stats.highRisk}个角色高风险`);
+    if (stats.unassignedOwner > 0) reasons.push(`${stats.unassignedOwner}个角色未分配责任人`);
     return {
-      level: 'has_risk',
+      level: 'has_risk' as const,
       title: '存在风险',
-      description: `有 ${stats.hasRisk} 个角色存在交接风险，需优先处理`,
+      description: `有 ${stats.hasRisk} 个角色存在交接风险（${reasons.join('，')}），需优先处理`,
       icon: AlertOctagon,
       color: 'text-red-600',
       bgColor: 'bg-red-50',
@@ -90,9 +129,9 @@ const handoverConclusion = computed(() => {
   }
   if (stats.followUp > 0 || stats.notChecked > 0) {
     return {
-      level: 'follow_up',
+      level: 'follow_up' as const,
       title: '需跟进',
-      description: `有 ${stats.followUp + stats.notChecked} 个角色需要跟进确认`,
+      description: `有 ${stats.followUp + stats.notChecked} 个角色需要跟进确认（待跟进${stats.followUp}个，未核对${stats.notChecked}个）`,
       icon: Clock,
       color: 'text-yellow-600',
       bgColor: 'bg-yellow-50',
@@ -100,9 +139,9 @@ const handoverConclusion = computed(() => {
     };
   }
   return {
-    level: 'confirmed',
+    level: 'confirmed' as const,
     title: '可交接',
-    description: '所有角色交接确认完成，可以进行演出',
+    description: '所有角色交接确认完成，无缺件、无高风险、责任人均已分配，可以进行演出',
     icon: CheckCircle,
     color: 'text-bamboo-600',
     bgColor: 'bg-bamboo-50',
@@ -112,22 +151,40 @@ const handoverConclusion = computed(() => {
 
 const filteredCharacters = computed(() => {
   let chars = [...storyCharacters.value];
+  
   if (selectedOwner.value) {
     chars = chars.filter(c => c.owner === selectedOwner.value || (!c.owner && selectedOwner.value === '__unassigned__'));
   }
+  
+  if (listFilterMode.value === 'todo') {
+    chars = chars.filter(c => c.handoverStatus !== 'confirmed' || hasObjectiveRisk(c));
+  } else if (listFilterMode.value === 'done') {
+    chars = chars.filter(c => c.handoverStatus === 'confirmed' && !hasObjectiveRisk(c));
+  }
+  
   return chars;
 });
 
+const todoCount = computed(() => {
+  return storyCharacters.value.filter(c => c.handoverStatus !== 'confirmed' || hasObjectiveRisk(c)).length;
+});
+
+const doneCount = computed(() => {
+  return storyCharacters.value.filter(c => c.handoverStatus === 'confirmed' && !hasObjectiveRisk(c)).length;
+});
+
 const ownerStats = computed(() => {
-  const stats: Record<string, { total: number; done: number }> = {};
+  const stats: Record<string, { total: number; done: number; todo: number }> = {};
   storyCharacters.value.forEach(c => {
     const key = c.owner || '__unassigned__';
     if (!stats[key]) {
-      stats[key] = { total: 0, done: 0 };
+      stats[key] = { total: 0, done: 0, todo: 0 };
     }
     stats[key].total++;
-    if (c.handoverStatus === 'confirmed') {
+    if (c.handoverStatus === 'confirmed' && !hasObjectiveRisk(c)) {
       stats[key].done++;
+    } else {
+      stats[key].todo++;
     }
   });
   return stats;
@@ -198,6 +255,10 @@ function cancelEdit() {
 }
 
 function saveEdit(char: Character) {
+  if (editHandoverStatus.value === 'confirmed' && hasObjectiveRisk(char)) {
+    warning('该角色存在缺件、高风险或未分配责任人，无法标记为可交接');
+    return;
+  }
   updateCharacter(char.id, {
     handoverStatus: editHandoverStatus.value,
     handoverNote: editHandoverNote.value,
@@ -207,6 +268,10 @@ function saveEdit(char: Character) {
 }
 
 function quickHandoverStatus(char: Character, status: HandoverStatus) {
+  if (status === 'confirmed' && hasObjectiveRisk(char)) {
+    warning('该角色存在缺件、高风险或未分配责任人，无法标记为可交接');
+    return;
+  }
   updateCharacter(char.id, { handoverStatus: status });
   success(`「${char.name}」已标记为「${HANDOVER_LABELS[status]}」`);
 }
@@ -247,6 +312,21 @@ const handoverDotColors: Record<HandoverStatus, string> = {
   has_risk: 'bg-red-500',
 };
 
+function getEffectiveHandoverStatus(char: Character): HandoverStatus {
+  if (hasObjectiveRisk(char)) return 'has_risk';
+  return char.handoverStatus;
+}
+
+function getEffectiveHandoverLabel(char: Character): string {
+  if (hasObjectiveRisk(char)) {
+    if (char.handoverStatus === 'confirmed') {
+      return '存在风险(已标记)';
+    }
+    return '存在风险';
+  }
+  return HANDOVER_LABELS[char.handoverStatus];
+}
+
 const riskColors: Record<RiskLevel, string> = {
   low: 'bg-green-50 text-green-700 border-green-200',
   medium: 'bg-yellow-50 text-yellow-700 border-yellow-200',
@@ -260,6 +340,12 @@ const riskIconMap = {
   high: AlertTriangle,
   critical: AlertOctagon,
 };
+
+const preparationPercentage = computed(() => {
+  const total = handoverStats.value.total;
+  if (total === 0) return 0;
+  return Math.round((handoverStats.value.readyToPack / total) * 100);
+});
 </script>
 
 <template>
@@ -380,13 +466,16 @@ const riskIconMap = {
                   <span class="text-xs text-emerald-600/80">准备进度</span>
                 </div>
                 <div class="text-2xl sm:text-3xl font-bold text-emerald-700 font-serif mb-1">
-                  {{ handoverStats.total > 0 ? Math.round((handoverStats.confirmed / handoverStats.total) * 100) : 0 }}%
+                  {{ preparationPercentage }}%
                 </div>
                 <div class="w-full h-1.5 bg-emerald-500/20 rounded-full overflow-hidden">
                   <div
                     class="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-full transition-all duration-500"
-                    :style="{ width: (handoverStats.total > 0 ? (handoverStats.confirmed / handoverStats.total) * 100 : 0) + '%' }"
+                    :style="{ width: preparationPercentage + '%' }"
                   />
+                </div>
+                <div class="text-xs text-emerald-600/70 mt-1">
+                  可封箱 {{ handoverStats.readyToPack }} / {{ handoverStats.total }}
                 </div>
               </div>
             </div>
@@ -508,7 +597,7 @@ const riskIconMap = {
                   全部 ({{ storyCharacters.length }})
                 </button>
                 <button
-                  v-for="owner in allOwners"
+                  v-for="owner in storyOwners"
                   :key="owner"
                   :class="[
                     'px-3 py-1.5 rounded-md text-sm font-medium transition-all border',
@@ -518,7 +607,7 @@ const riskIconMap = {
                   ]"
                   @click="selectedOwner = owner"
                 >
-                  {{ owner }} ({{ ownerStats[owner]?.done || 0 }}/{{ ownerStats[owner]?.total || 0 }})
+                  {{ owner }} ({{ ownerStats[owner]?.todo || 0 }}待办)
                 </button>
                 <button
                   v-if="unassignedOwnerCharacters.length > 0"
@@ -530,14 +619,63 @@ const riskIconMap = {
                   ]"
                   @click="selectedOwner = '__unassigned__'"
                 >
-                  未分配 ({{ ownerStats['__unassigned__']?.done || 0 }}/{{ ownerStats['__unassigned__']?.total || 0 }})
+                  未分配 ({{ ownerStats['__unassigned__']?.todo || 0 }}待办)
+                </button>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+              <div class="flex items-center gap-1.5 text-sm text-ink-600">
+                <Filter class="w-4 h-4" />
+                <span>列表筛选:</span>
+              </div>
+              <div class="flex gap-1 sm:gap-2">
+                <button
+                  :class="[
+                    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all border',
+                    listFilterMode === 'todo'
+                      ? 'bg-cinnabar-700 text-white border-cinnabar-600'
+                      : 'bg-white text-ink-600 border-ink-200 hover:border-cinnabar-400'
+                  ]"
+                  @click="listFilterMode = 'todo'"
+                >
+                  <ListTodo class="w-4 h-4" />
+                  待办 ({{ todoCount }})
+                </button>
+                <button
+                  :class="[
+                    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all border',
+                    listFilterMode === 'done'
+                      ? 'bg-cinnabar-700 text-white border-cinnabar-600'
+                      : 'bg-white text-ink-600 border-ink-200 hover:border-cinnabar-400'
+                  ]"
+                  @click="listFilterMode = 'done'"
+                >
+                  <ListChecks class="w-4 h-4" />
+                  已完成 ({{ doneCount }})
+                </button>
+                <button
+                  :class="[
+                    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all border',
+                    listFilterMode === 'all'
+                      ? 'bg-cinnabar-700 text-white border-cinnabar-600'
+                      : 'bg-white text-ink-600 border-ink-200 hover:border-cinnabar-400'
+                  ]"
+                  @click="listFilterMode = 'all'"
+                >
+                  <ListChecks class="w-4 h-4" />
+                  全部 ({{ storyCharacters.length }})
                 </button>
               </div>
             </div>
 
             <div class="space-y-2 sm:space-y-3">
               <div v-if="filteredCharacters.length === 0" class="text-center py-12 text-ink-400 bg-rice-50 rounded-lg border border-rice-200 border-dashed">
-                <p class="text-sm">该责任人暂无负责角色</p>
+                <p class="text-sm">
+                  <template v-if="selectedOwner">该责任人</template>
+                  <template v-else>当前筛选条件下</template>
+                  暂无{{ listFilterMode === 'todo' ? '待办' : listFilterMode === 'done' ? '已完成' : '' }}角色
+                </p>
               </div>
 
               <div
@@ -545,9 +683,9 @@ const riskIconMap = {
                 :key="char.id"
                 :class="[
                   'scroll-card overflow-hidden transition-all',
-                  char.handoverStatus === 'has_risk' ? 'ring-2 ring-red-300' : '',
-                  char.handoverStatus === 'follow_up' ? 'ring-1 ring-yellow-300' : '',
-                  char.handoverStatus === 'confirmed' ? 'ring-1 ring-bamboo-300' : '',
+                  getEffectiveHandoverStatus(char) === 'has_risk' ? 'ring-2 ring-red-300' : '',
+                  getEffectiveHandoverStatus(char) === 'follow_up' ? 'ring-1 ring-yellow-300' : '',
+                  getEffectiveHandoverStatus(char) === 'confirmed' ? 'ring-1 ring-bamboo-300' : '',
                 ]"
               >
                 <div
@@ -569,14 +707,14 @@ const riskIconMap = {
                       >
                         {{ char.demoOrder }}
                       </span>
-                      <span :class="['w-2.5 h-2.5 rounded-full', handoverDotColors[char.handoverStatus]]" />
+                      <span :class="['w-2.5 h-2.5 rounded-full', handoverDotColors[getEffectiveHandoverStatus(char)]]" />
                     </div>
 
                     <div class="flex-1 min-w-0">
                       <div class="flex flex-wrap items-center gap-2 mb-1.5">
                         <h4 class="font-serif text-base sm:text-lg font-bold text-ink-800 truncate">{{ char.name }}</h4>
-                        <span :class="['tag border shrink-0', handoverColors[char.handoverStatus]]">
-                          {{ HANDOVER_LABELS[char.handoverStatus] }}
+                        <span :class="['tag border shrink-0', handoverColors[getEffectiveHandoverStatus(char)]]">
+                          {{ getEffectiveHandoverLabel(char) }}
                         </span>
                         <span
                           v-if="char.riskLevel !== 'low'"
@@ -591,6 +729,13 @@ const riskIconMap = {
                         >
                           <PackageX class="w-3 h-3 mr-1" />
                           {{ getGapSummary(char).length }}项缺件
+                        </span>
+                        <span
+                          v-if="!char.owner"
+                          class="tag border bg-yellow-50 text-yellow-600 border-yellow-200 shrink-0"
+                        >
+                          <UserX class="w-3 h-3 mr-1" />
+                          未分配责任人
                         </span>
                       </div>
 
@@ -630,6 +775,13 @@ const riskIconMap = {
                           <span>{{ issue }}</span>
                         </div>
 
+                        <div v-if="hasObjectiveRisk(char)" class="p-2 bg-red-50 border border-red-200 rounded-md">
+                          <p class="text-xs text-red-600 flex items-center gap-1">
+                            <AlertOctagon class="w-4 h-4 flex-shrink-0" />
+                            <span>该角色存在客观风险（缺件/高风险/未分配责任人），不能标记为「可交接」</span>
+                          </p>
+                        </div>
+
                         <div v-if="editingId !== char.id" class="flex flex-wrap gap-2 pt-2 border-t border-rice-100">
                           <button
                             class="btn-secondary !py-1 !px-2.5 text-xs"
@@ -639,7 +791,7 @@ const riskIconMap = {
                             更新交接状态
                           </button>
                           <button
-                            v-if="char.handoverStatus !== 'confirmed'"
+                            v-if="getEffectiveHandoverStatus(char) !== 'confirmed' && !hasObjectiveRisk(char)"
                             class="btn-secondary !py-1 !px-2.5 text-xs !bg-bamboo-50 !text-bamboo-700 !border-bamboo-200 hover:!bg-bamboo-100"
                             @click.stop="quickHandoverStatus(char, 'confirmed')"
                           >
@@ -647,7 +799,7 @@ const riskIconMap = {
                             → 可交接
                           </button>
                           <button
-                            v-if="char.handoverStatus !== 'follow_up'"
+                            v-if="getEffectiveHandoverStatus(char) !== 'follow_up' && !hasObjectiveRisk(char)"
                             class="btn-secondary !py-1 !px-2.5 text-xs !bg-yellow-50 !text-yellow-700 !border-yellow-200 hover:!bg-yellow-100"
                             @click.stop="quickHandoverStatus(char, 'follow_up')"
                           >
@@ -655,7 +807,7 @@ const riskIconMap = {
                             → 需跟进
                           </button>
                           <button
-                            v-if="getKeyIssues(char).length > 0 && char.handoverStatus !== 'has_risk'"
+                            v-if="getKeyIssues(char).length > 0 && getEffectiveHandoverStatus(char) !== 'has_risk'"
                             class="btn-secondary !py-1 !px-2.5 text-xs !bg-red-50 !text-red-700 !border-red-200 hover:!bg-red-100"
                             @click.stop="quickHandoverStatus(char, 'has_risk')"
                           >
@@ -670,7 +822,7 @@ const riskIconMap = {
                       v-if="editingId !== char.id"
                       class="flex-shrink-0 p-1 rounded hover:bg-rice-200 text-ink-400 transition-colors"
                     >
-                      <component :is="expandedIds.has(char.id) ? ChevronLeft : ChevronRight" class="w-5 h-5" :class="expandedIds.has(char.id) ? 'rotate-180' : ''" style="transform: rotate(90deg);" />
+                      <ChevronRight class="w-5 h-5" :class="expandedIds.has(char.id) ? 'rotate-90' : ''" style="transition: transform 0.2s;" />
                     </button>
                   </div>
                 </div>
@@ -683,8 +835,14 @@ const riskIconMap = {
                     <div>
                       <label class="label-base">交接状态</label>
                       <select v-model="editHandoverStatus" class="select-base">
-                        <option v-for="(label, key) in HANDOVER_LABELS" :key="key" :value="key">{{ label }}</option>
+                        <option v-for="(label, key) in HANDOVER_LABELS" :key="key" :value="key">
+                          {{ label }}
+                          <template v-if="key === 'confirmed' && hasObjectiveRisk(char)">（存在风险不可选）</template>
+                        </option>
                       </select>
+                      <p v-if="editHandoverStatus === 'confirmed' && hasObjectiveRisk(char)" class="text-xs text-red-500 mt-1">
+                        该角色存在客观风险，无法标记为可交接
+                      </p>
                     </div>
                     <div>
                       <label class="label-base">交接备注</label>
